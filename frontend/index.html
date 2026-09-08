@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fair Copy Demo</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <h1>Fair Copy Demo</h1>
+    <p class="subtitle">Paste article text or a URL to classify it.</p>
+
+    <form id="classify-form">
+      <textarea id="text-input" placeholder="Paste article text here..." rows="6"></textarea>
+      <div class="or-divider">or</div>
+      <input id="url-input" type="url" placeholder="https://example.com/article">
+      <button type="submit" id="submit-btn">Classify</button>
+    </form>
+
+    <div id="loading" class="hidden">Classifying...</div>
+
+    <section id="results" class="hidden">
+      <h2>Labels</h2>
+      <div id="badges"></div>
+
+      <h2>Sentence Impact</h2>
+      <ul id="sentence-list"></ul>
+      <button id="load-more" class="hidden">Load 10 more</button>
+    </section>
+
+    <div id="error" class="hidden"></div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
