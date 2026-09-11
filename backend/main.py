@@ -14,6 +14,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import os
+from dotenv import load_dotenv
+from pub_pros import PROFILES, DEFAULT_REMOVE_SELECTOR
+
+
+load_dotenv()
+JINA_API_KEY = os.environ.get("JINA_API_KEY")
+
+# API setup
 app = FastAPI(title="Fair Copy RnD")
 
 # Allow the local frontend (served separately) to call this API during dev.
@@ -24,8 +33,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Predetermined label set (4+), per the pitch/PP4 spec.
+# Predetermined labels
 LABELS = ["Factual Reporting", "Opinion/Editorial", "Hyperpartisan", "Clickbait"]
+
+# get pub pros
+def get_publisher_profile(url: str) -> dict:
+    from urllib.parse import urlparse
+    domain = urlparse(url).netloc.replace("www.", "")
+    return PROFILES.get(domain, {})
+
 
 # In-memory store for the RnD demo
 _SESSIONS: dict[str, dict] = {}
@@ -68,11 +84,34 @@ def split_sentences(text: str) -> list[str]:
     return [s for s in raw if len(s.split()) >= 4]
 
 
-def strip_markdown_links(text: str) -> str:
-    # Jina returns markdown. Images add no classifiable text, so drop them entirely
-    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)             # ![alt](url) -> removed
-    text = re.sub(r'\[([^\]]*)\]\(([^)]*)\)', r'\1', text)  # [text](url) -> text
-    return text
+def process_Jina_response(raw: str) -> tuple[str | None, str]:
+    """
+    Jina's reader response has a predictable header block:
+        Title: <headline>
+        URL Source: <url>
+        Published Time: <timestamp>
+        Markdown Content:
+        <actual article text>
+    This pulls the title out separately, then cleans markdown link syntax
+    out of the body so neither the sentence splitter nor the classifier
+    sees raw "[text](url)" noise.
+    """
+
+    # split into title and content, title comes in the header
+    title_match = re.search(
+        r'Title:\s*(.*?)\s*(?:URL Source:|Published Time:|Markdown Content:)',
+        raw, re.DOTALL
+    )
+    title = title_match.group(1).strip() if title_match else None
+
+    content_match = re.search(r'Markdown Content:\s*(.*)', raw, re.DOTALL)
+    content = content_match.group(1).strip() if content_match else raw
+    
+    # strip markdown
+    content = re.sub(r'!\[.*?\]\(.*?\)', '', content)               # ![alt](url) -> removed
+    content = re.sub(r'\[([^\]]*)\]\(([^)]*)\)', r'\1', content)    # [text](url) -> text
+
+    return title, content
 
 
 def classify_text(text: str) -> dict[str, float]:
@@ -99,9 +138,20 @@ def classify(req: ClassifyRequest):
 
     # HEADSUP: URL would overwrite text if both are provided
     if req.url:
+        # get specific targets
+        profile = get_publisher_profile(req.url)
+        headers = {"X-Remove-Selector": DEFAULT_REMOVE_SELECTOR}
+        if "target_selector" in profile:
+            headers["X-Target-Selector"] = profile["target_selector"]
+            print(f"[pub_pros] matched profile for {req.url} -> {profile['target_selector']}")
+        else:
+            print(f"[pub_pros] no profile match for {req.url} -- using default extraction only")
+        if JINA_API_KEY:
+            headers["Authorization"] = f"Bearer {JINA_API_KEY}"
+        
         # External parsing API call -- r.jina.ai extracts clean article text from a URL
         try:
-            resp = requests.get(f"https://r.jina.ai/{req.url}", timeout=20)
+            resp = requests.get(f"https://r.jina.ai/{req.url}", headers=headers, timeout=20)
             resp.raise_for_status()
             article_text = resp.text
         except requests.RequestException as e:
@@ -116,8 +166,8 @@ def classify(req: ClassifyRequest):
                 "(bot/CAPTCHA protection). Try pasting the article text directly instead."
             )
 
-        # strip out any markdown that Jina returns
-        article_text = strip_markdown_links(article_text)
+        # strip markdown and headers
+        article_title, article_text = process_Jina_response(article_text)
 
     if not article_text or len(article_text.strip()) < 20:
         raise HTTPException(400, "Not enough article text to classify.")
@@ -130,12 +180,14 @@ def classify(req: ClassifyRequest):
         "text": article_text,
         "sentences": sentences,
         "baseline": baseline_scores,
+        "title": article_title,
     }
 
     return {
         "id": session_id,
         "labels": [{"name": name, "confidence": round(score, 4)} for name, score in baseline_scores.items()],
         "sentence_count": len(sentences),
+        "title": article_title,
     }
 
 
