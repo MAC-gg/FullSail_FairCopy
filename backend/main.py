@@ -30,7 +30,16 @@ LABELS = ["Factual Reporting", "Opinion/Editorial", "Hyperpartisan", "Clickbait"
 # In-memory store for the RnD demo
 _SESSIONS: dict[str, dict] = {}
 
-_classifier = None  # lazy-loaded so the app can start without immediately hitting the network
+# lazy-load some packages
+_classifier = None
+_nlp = None
+
+def get_nlp():
+    global _nlp
+    if _nlp is None:
+        import spacy
+        _nlp = spacy.load("en_core_web_sm", disable=["ner", "lemmatizer", "tagger", "attribute_ruler"])
+    return _nlp
 
 
 def get_classifier():
@@ -52,8 +61,18 @@ def get_classifier():
 
 
 def split_sentences(text: str) -> list[str]:
-    raw = re.split(r'(?<=[.!?])\s+', text.strip())
-    return [s.strip() for s in raw if s.strip()]
+    doc = get_nlp()(text.strip())
+    raw = [sent.text.strip() for sent in doc.sents]
+
+    # Drop short fragments (nav links, bare numbers, etc) that aren't real sentences -- a genuine sentence is rarely under ~4 words
+    return [s for s in raw if len(s.split()) >= 4]
+
+
+def strip_markdown_links(text: str) -> str:
+    # Jina returns markdown. Images add no classifiable text, so drop them entirely
+    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)             # ![alt](url) -> removed
+    text = re.sub(r'\[([^\]]*)\]\(([^)]*)\)', r'\1', text)  # [text](url) -> text
+    return text
 
 
 def classify_text(text: str) -> dict[str, float]:
@@ -96,6 +115,9 @@ def classify(req: ClassifyRequest):
                 "The source site blocked automated access to this article "
                 "(bot/CAPTCHA protection). Try pasting the article text directly instead."
             )
+
+        # strip out any markdown that Jina returns
+        article_text = strip_markdown_links(article_text)
 
     if not article_text or len(article_text.strip()) < 20:
         raise HTTPException(400, "Not enough article text to classify.")
