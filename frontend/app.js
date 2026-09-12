@@ -1,13 +1,22 @@
 const API_BASE = "http://127.0.0.1:8000";
 
+// form
+const formBox = document.getElementById("form-box");
 const form = document.getElementById("classify-form");
 const textInput = document.getElementById("text-input");
 const urlInput = document.getElementById("url-input");
-const loading = document.getElementById("loading");
+
+// results
 const results = document.getElementById("results");
+const articleTitleEl = document.getElementById("article_title");
+const photoCreditsEl = document.getElementById("photo_credits");
+const wordCountsEl = document.getElementById("word_counts");
 const badgesEl = document.getElementById("badges");
 const sentenceList = document.getElementById("sentence-list");
+
+// UI/UX
 const loadMoreBtn = document.getElementById("load-more");
+const loading = document.getElementById("loading");
 const errorEl = document.getElementById("error");
 
 let currentSessionId = null;
@@ -77,12 +86,26 @@ form.addEventListener("submit", async (e) => {
       throw new Error(err.detail || "Classification failed.");
     }
     const data = await res.json();
+    console.log(data);
 
     currentSessionId = data.id;
     nextOffset = 0;
 
-    renderBadges(data.labels);
+    // switch views
+    formBox.classList.add("hidden");
     results.classList.remove("hidden");
+
+    // display results
+    articleTitleEl.textContent = data.title || "N/A";
+    articleTitleEl.parentElement.classList.remove("loading");
+
+    photoCreditsEl.textContent = data.photo_credits.length > 0 ? data.photo_credits.join(", ") : "None";
+    photoCreditsEl.parentElement.classList.remove("loading");
+
+    wordCountsEl.innerHTML = data.word_counts.map(wc => `<div>${wc.word}: ${wc.count}</div>`).join("");
+    wordCountsEl.parentElement.classList.remove("loading");
+
+    renderBadges(data.labels);
 
     await loadNextSentenceBatch();
   } catch (err) {

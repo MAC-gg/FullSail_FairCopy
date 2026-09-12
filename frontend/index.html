@@ -7,25 +7,48 @@
 </head>
 <body>
   <main>
-    <h1>Fair Copy Demo</h1>
-    <p class="subtitle">Paste article text or a URL to classify it.</p>
+    <section id="form-box">
+      <h1>Fair Copy Demo</h1>
+      <p class="subtitle">Paste article text or a URL to classify it.</p>
 
-    <form id="classify-form">
-      <textarea id="text-input" placeholder="Paste article text here..." rows="6"></textarea>
-      <div class="or-divider">or</div>
-      <input id="url-input" type="url" placeholder="https://example.com/article">
-      <button type="submit" id="submit-btn">Classify</button>
-    </form>
+      <form id="classify-form">
+        <textarea id="text-input" placeholder="Paste article text here..." rows="6"></textarea>
+        <div class="or-divider">or</div>
+        <input id="url-input" type="url" placeholder="https://example.com/article">
+        <button type="submit" id="submit-btn">Classify</button>
+      </form>
+    </section>
 
     <div id="loading" class="hidden">Classifying...</div>
 
     <section id="results" class="hidden">
-      <h2>Labels</h2>
-      <div id="badges"></div>
+      <h1>Results</h1>
 
-      <h2>Sentence Impact</h2>
-      <ul id="sentence-list"></ul>
-      <button id="load-more" class="hidden">Load 10 more</button>
+      <div class="field-box loading" id="article-title-box">
+        <h2>Article Title</h2>
+        <div id="article_title"></div>
+      </div>
+
+      <div class="field-box loading" id="label-box">
+        <h2>Labels</h2>
+        <div id="badges"></div>
+      </div>
+
+      <div class="field-box loading" id="photo-credits-box">
+        <h2>Photo Credits</h2>
+        <div id="photo_credits"></div>
+      </div>
+
+      <div class="field-box loading" id="word-count-box">
+        <h2>Word Breakdown</h2>
+        <div id="word_counts"></div>
+      </div>
+
+      <div class="field-box loading" id="sentence-impact-box">
+        <h2>Sentence Impact</h2>
+        <ul id="sentence-list"></ul>
+        <button id="load-more" class="hidden">Load 10 more</button>
+      </div>
     </section>
 
     <div id="error" class="hidden"></div>

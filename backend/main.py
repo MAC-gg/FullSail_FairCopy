@@ -5,6 +5,7 @@ Demonstrates the full technology chain end-to-end
 Run locally (see README.md)
 """
 
+import json
 import re
 import uuid
 from typing import Optional
@@ -16,7 +17,9 @@ from pydantic import BaseModel
 
 import os
 from dotenv import load_dotenv
-from pub_pros import PROFILES, DEFAULT_REMOVE_SELECTOR
+import trafilatura
+from bs4 import BeautifulSoup
+from collections import Counter
 
 
 load_dotenv()
@@ -36,28 +39,11 @@ app.add_middleware(
 # Predetermined labels
 LABELS = ["Factual Reporting", "Opinion/Editorial", "Hyperpartisan", "Clickbait"]
 
-# get pub pros
-def get_publisher_profile(url: str) -> dict:
-    from urllib.parse import urlparse
-    domain = urlparse(url).netloc.replace("www.", "")
-    return PROFILES.get(domain, {})
-
-
 # In-memory store for the RnD demo
 _SESSIONS: dict[str, dict] = {}
 
 # lazy-load some packages
 _classifier = None
-_nlp = None
-
-def get_nlp():
-    global _nlp
-    if _nlp is None:
-        import spacy
-        _nlp = spacy.load("en_core_web_sm", disable=["ner", "lemmatizer", "tagger", "attribute_ruler"])
-    return _nlp
-
-
 def get_classifier():
     """
     Lazily loads a zero-shot classification pipeline.
@@ -75,48 +61,71 @@ def get_classifier():
         _classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
     return _classifier
 
-
-def split_sentences(text: str) -> list[str]:
-    doc = get_nlp()(text.strip())
-    raw = [sent.text.strip() for sent in doc.sents]
-
-    # Drop short fragments (nav links, bare numbers, etc) that aren't real sentences -- a genuine sentence is rarely under ~4 words
-    return [s for s in raw if len(s.split()) >= 4]
-
-
-def process_Jina_response(raw: str) -> tuple[str | None, str]:
-    """
-    Jina's reader response has a predictable header block:
-        Title: <headline>
-        URL Source: <url>
-        Published Time: <timestamp>
-        Markdown Content:
-        <actual article text>
-    This pulls the title out separately, then cleans markdown link syntax
-    out of the body so neither the sentence splitter nor the classifier
-    sees raw "[text](url)" noise.
-    """
-
-    # split into title and content, title comes in the header
-    title_match = re.search(
-        r'Title:\s*(.*?)\s*(?:URL Source:|Published Time:|Markdown Content:)',
-        raw, re.DOTALL
-    )
-    title = title_match.group(1).strip() if title_match else None
-
-    content_match = re.search(r'Markdown Content:\s*(.*)', raw, re.DOTALL)
-    content = content_match.group(1).strip() if content_match else raw
-    
-    # strip markdown
-    content = re.sub(r'!\[.*?\]\(.*?\)', '', content)               # ![alt](url) -> removed
-    content = re.sub(r'\[([^\]]*)\]\(([^)]*)\)', r'\1', content)    # [text](url) -> text
-
-    return title, content
-
-
 def classify_text(text: str) -> dict[str, float]:
     result = get_classifier()(text, LABELS, multi_label=True)
-    return dict(zip(result["labels"], result["scores"]))
+    return {str(label): float(score) for label, score in zip(result["labels"], result["scores"])}
+
+# splitting sentences and words
+_nlp = None
+def get_nlp():
+    global _nlp
+    if _nlp is None:
+        import spacy
+        _nlp = spacy.load("en_core_web_sm", disable=["ner", "lemmatizer", "tagger", "attribute_ruler"])
+    return _nlp
+
+def split_sentences(text: str) -> list[str]:
+    all_sentences: list[str] = []
+    for paragraph in text.split("\n"):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        doc = get_nlp()(paragraph)
+        all_sentences.extend(s.text.strip() for s in doc.sents)
+
+    return [s for s in all_sentences if len(s.split()) >= 4]
+
+def word_breakdown(text: str, top_n: int = 15) -> list[dict]:
+    nlp = get_nlp()
+    doc = nlp(text)
+    words = [
+        token.text.lower() for token in doc
+        if token.is_alpha and not nlp.vocab[token.text.lower()].is_stop and len(token.text) > 2
+    ]
+    counts = Counter(words)
+    return [{"word": word, "count": count} for word, count in counts.most_common(top_n)]
+
+# photo credit setup
+PHOTO_CREDIT_PATTERN = re.compile(r'\([A-Za-z][A-Za-z\s]*(?:Photo|Images?)/[^)]*\)')
+
+def extract_photo_credits(html: str) -> list[str]:
+    """
+    By regex, collects all photo credit to be displayed
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    full_text = soup.get_text(separator=" ")
+    return list(dict.fromkeys(PHOTO_CREDIT_PATTERN.findall(full_text)))
+
+
+def extract_article(html: str) -> tuple[str | None, str]:
+    """
+    Runs trafilatura against raw HTML to find the article body algorithmically
+    Scores DOM blocks on tag type, link density, and known boilerplate patterns
+    rather than filtering by text length that can't tell between a sentence from a linked headline
+    """
+    extracted = trafilatura.extract(html, with_metadata=True, output_format="json", favor_precision=True, include_comments=False)
+    if not extracted:
+        return None, ""
+    data = json.loads(extracted)
+    title = data.get("title")
+    body = data.get("text", "")
+
+    # traffy sometimes includes the headline as the body's first line
+    # instead strip it out
+    if title and body.strip().startswith(title.strip()):
+        body = body.strip()[len(title.strip()):].strip()
+
+    return title, body
 
 
 class ClassifyRequest(BaseModel):
@@ -135,45 +144,51 @@ def classify(req: ClassifyRequest):
         raise HTTPException(400, "Provide either 'text' or 'url'.")
 
     article_text = req.text
+    article_title = None
+    photo_credits = []
 
     # HEADSUP: URL would overwrite text if both are provided
     if req.url:
-        # get specific targets
-        profile = get_publisher_profile(req.url)
-        headers = {"X-Remove-Selector": DEFAULT_REMOVE_SELECTOR}
-        if "target_selector" in profile:
-            headers["X-Target-Selector"] = profile["target_selector"]
-            print(f"[pub_pros] matched profile for {req.url} -> {profile['target_selector']}")
-        else:
-            print(f"[pub_pros] no profile match for {req.url} -- using default extraction only")
+        # get full HTML
+        headers = {"X-Return-Format": "html"}
         if JINA_API_KEY:
             headers["Authorization"] = f"Bearer {JINA_API_KEY}"
         
         # External parsing API call -- r.jina.ai extracts clean article text from a URL
         try:
             resp = requests.get(f"https://r.jina.ai/{req.url}", headers=headers, timeout=20)
-            resp.raise_for_status()
-            article_text = resp.text
+        except requests.Timeout:
+            raise HTTPException(504, "The article-parsing service timed out. Try again.")
         except requests.RequestException as e:
-            raise HTTPException(502, f"Could not extract article from URL: {e}")
+            raise HTTPException(502, f"Could not reach the article-parsing service: {e}")
 
-        # Some publishers block scrapers (403/CAPTCHA/anti-bot pages)
-        failure_markers = ("Warning: Target URL returned error", "Access to this page has been denied")
-        if any(marker in article_text for marker in failure_markers):
-            raise HTTPException(
-                502,
-                "The source site blocked automated access to this article "
-                "(bot/CAPTCHA protection). Try pasting the article text directly instead."
-            )
+        # Error handling for Jina
+        if resp.status_code == 401:
+            raise HTTPException(502, "Article-parsing API key was rejected -- check JINA_API_KEY in .env.")
+        elif resp.status_code == 429:
+            raise HTTPException(429, "Article-parsing service rate limit hit. Wait a moment and try again.")
+        elif resp.status_code == 403:
+            raise HTTPException(502, "The article-parsing service was denied access to this URL.")
+        elif not resp.ok:
+            raise HTTPException(502, f"Article-parsing service returned an unexpected error ({resp.status_code}).")
 
-        # strip markdown and headers
-        article_title, article_text = process_Jina_response(article_text)
+        article_text = resp.text
+
+        # collect photo credits
+        photo_credits = extract_photo_credits(article_text)
+
+        # run traffy to get the article from the HTML
+        article_title, article_text = extract_article(article_text)
+
 
     if not article_text or len(article_text.strip()) < 20:
         raise HTTPException(400, "Not enough article text to classify.")
 
     baseline_scores = classify_text(article_text)
+    title_scores = classify_text(article_title) if article_title else None
     sentences = split_sentences(article_text)
+    word_counts = word_breakdown(article_text)
+    poss_trunc = len(sentences) < 10
 
     session_id = str(uuid.uuid4())
     _SESSIONS[session_id] = {
@@ -181,13 +196,24 @@ def classify(req: ClassifyRequest):
         "sentences": sentences,
         "baseline": baseline_scores,
         "title": article_title,
+        "title_scores": title_scores,
+        "poss_trunc": poss_trunc,
+        "photo_credits": photo_credits,
+        "word_counts": word_counts,
     }
 
     return {
         "id": session_id,
-        "labels": [{"name": name, "confidence": round(score, 4)} for name, score in baseline_scores.items()],
-        "sentence_count": len(sentences),
         "title": article_title,
+        "labels": [{"name": name, "confidence": round(score, 4)} for name, score in baseline_scores.items()],
+        "title_labels": (
+            [{"name": name, "confidence": round(score, 4)} for name, score in title_scores.items()]
+            if title_scores else None
+        ),
+        "sentence_count": len(sentences),
+        "poss_trunc": poss_trunc,
+        "photo_credits": photo_credits,
+        "word_counts": word_counts,
     }
 
 
