@@ -1,7 +1,5 @@
 """
-Fair Copy - RnD Proof of Concept
-Demonstrates the full technology chain end-to-end
-
+Fair Copy
 Run locally (see README.md)
 """
 
@@ -20,6 +18,7 @@ from dotenv import load_dotenv
 import trafilatura
 from bs4 import BeautifulSoup
 from collections import Counter
+from pathlib import Path
 
 
 load_dotenv()
@@ -42,28 +41,59 @@ LABELS = ["Factual Reporting", "Opinion/Editorial", "Hyperpartisan", "Clickbait"
 # In-memory store for the RnD demo
 _SESSIONS: dict[str, dict] = {}
 
-# lazy-load some packages
-_classifier = None
-def get_classifier():
-    """
-    Lazily loads a zero-shot classification pipeline.
+# lazy-load models
+MODELS_DIR = Path(__file__).parent.parent / "training" / "models"
+_hyperpartisan_model = None
+_clickbait_model = None
+_factual_opinion_model = None
 
-    RnD NOTE: the production version of Fair Copy fine-tunes a transformer on
-    labeled datasets (SemEval Hyperpartisan News, Webis Clickbait Corpus).
-    That takes real training time and data prep that doesn't fit an RnD proof
-    of concept. Zero-shot classification (facebook/bart-large-mnli) is used
-    here instead to prove the model-inference link in the chain works end to
-    end without requiring a training run first.
-    """
-    global _classifier
-    if _classifier is None:
+
+def get_hyperpartisan_classifier():
+    global _hyperpartisan_model
+    if _hyperpartisan_model is None:
         from transformers import pipeline
-        _classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
-    return _classifier
+        _hyperpartisan_model = pipeline(
+            "text-classification", model="mackyoop/fair-copy-hyperpartisan", top_k=None,
+        )
+    return _hyperpartisan_model
+
+
+def get_clickbait_classifier():
+    global _clickbait_model
+    if _clickbait_model is None:
+        from transformers import pipeline
+        _clickbait_model = pipeline(
+            "text-classification", model="mackyoop/fair-copy-clickbait", top_k=None,
+        )
+    return _clickbait_model
+
+
+def get_factual_opinion_classifier():
+    global _factual_opinion_model
+    if _factual_opinion_model is None:
+        from transformers import pipeline
+        _factual_opinion_model = pipeline(
+            "text-classification", model="mackyoop/fair-copy-factual-opinion", top_k=None,
+        )
+    return _factual_opinion_model
+
 
 def classify_text(text: str) -> dict[str, float]:
-    result = get_classifier()(text, LABELS, multi_label=True)
-    return {str(label): float(score) for label, score in zip(result["labels"], result["scores"])}
+    hp_result = {r["label"]: r["score"] for r in get_hyperpartisan_classifier()(text, truncation=True, max_length=512)[0]}
+    cb_result = {r["label"]: r["score"] for r in get_clickbait_classifier()(text, truncation=True, max_length=512)[0]}
+    fo_result = {r["label"]: r["score"] for r in get_factual_opinion_classifier()(text, truncation=True, max_length=512)[0]}
+
+    hyperpartisan_score = hp_result.get("LABEL_1", hp_result.get("Hyperpartisan", 0.0))
+    clickbait_score = cb_result.get("LABEL_1", cb_result.get("Clickbait", 0.0))
+    opinion_score = fo_result.get("LABEL_1", fo_result.get("Opinion/Editorial", 0.0))
+    factual_score = 1.0 - opinion_score
+
+    return {
+        "Factual Reporting": factual_score,
+        "Opinion/Editorial": opinion_score,
+        "Hyperpartisan": hyperpartisan_score,
+        "Clickbait": clickbait_score,
+    }
 
 # splitting sentences and words
 _nlp = None
