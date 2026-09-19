@@ -36,7 +36,7 @@ app.add_middleware(
 )
 
 # Predetermined labels
-LABELS = ["Factual Reporting", "Opinion/Editorial", "Hyperpartisan", "Clickbait"]
+LABELS = ["factual", "opinion", "hyperpartisan", "clickbait"]
 
 # In-memory store for the RnD demo
 _SESSIONS: dict[str, dict] = {}
@@ -89,10 +89,10 @@ def classify_text(text: str) -> dict[str, float]:
     factual_score = 1.0 - opinion_score
 
     return {
-        "Factual Reporting": factual_score,
-        "Opinion/Editorial": opinion_score,
-        "Hyperpartisan": hyperpartisan_score,
-        "Clickbait": clickbait_score,
+        "factual": factual_score,
+        "opinion": opinion_score,
+        "hyperpartisan": hyperpartisan_score,
+        "clickbait": clickbait_score,
     }
 
 # splitting sentences and words
@@ -118,12 +118,18 @@ def split_sentences(text: str) -> list[str]:
 def word_breakdown(text: str, top_n: int = 15) -> list[dict]:
     nlp = get_nlp()
     doc = nlp(text)
-    words = [
+
+    all_words = [token.text for token in doc if token.is_alpha and len(token.text) > 2]
+
+    filtered_words = [
         token.text.lower() for token in doc
         if token.is_alpha and not nlp.vocab[token.text.lower()].is_stop and len(token.text) > 2
     ]
-    counts = Counter(words)
-    return [{"word": word, "count": count} for word, count in counts.most_common(top_n)]
+    counts = Counter(filtered_words)
+
+    breakdown = [{"word": word, "count": count} for word, count in counts.most_common(top_n)]
+    breakdown.insert(0, {"word": "Words", "count": len(all_words)})
+    return breakdown
 
 # photo credit setup
 PHOTO_CREDIT_PATTERN = re.compile(r'\([A-Za-z][A-Za-z\s]*(?:Photo|Images?)/[^)]*\)')
@@ -137,25 +143,29 @@ def extract_photo_credits(html: str) -> list[str]:
     return list(dict.fromkeys(PHOTO_CREDIT_PATTERN.findall(full_text)))
 
 
-def extract_article(html: str) -> tuple[str | None, str]:
+def extract_article(html: str) -> dict:
     """
-    Runs trafilatura against raw HTML to find the article body algorithmically
-    Scores DOM blocks on tag type, link density, and known boilerplate patterns
-    rather than filtering by text length that can't tell between a sentence from a linked headline
+    Run traffy to get article details including title, author, date, and content
+
+    Input: html string from article URL
+
+    Output: article object including title, author, date, content
     """
-    extracted = trafilatura.extract(html, with_metadata=True, output_format="json", favor_precision=True, include_comments=False)
+    extracted = trafilatura.extract(
+        html, with_metadata=True, output_format="json",
+        favor_precision=True, include_comments=False,
+    )
     if not extracted:
-        return None, ""
+        return {"title": None, "author": None, "date": None, "text": ""}
+
     data = json.loads(extracted)
     title = data.get("title")
     body = data.get("text", "")
 
-    # traffy sometimes includes the headline as the body's first line
-    # instead strip it out
     if title and body.strip().startswith(title.strip()):
         body = body.strip()[len(title.strip()):].strip()
 
-    return title, body
+    return {"title": title, "author": data.get("author"), "date": data.get("date"), "text": body}
 
 
 class ClassifyRequest(BaseModel):
@@ -175,6 +185,8 @@ def classify(req: ClassifyRequest):
 
     article_text = req.text
     article_title = None
+    article_author = None
+    article_date = None
     photo_credits = []
 
     # HEADSUP: URL would overwrite text if both are provided
@@ -208,7 +220,11 @@ def classify(req: ClassifyRequest):
         photo_credits = extract_photo_credits(article_text)
 
         # run traffy to get the article from the HTML
-        article_title, article_text = extract_article(article_text)
+        article_meta = extract_article(article_text)
+        article_title = article_meta["title"]
+        article_author = article_meta["author"]
+        article_date = article_meta["date"]
+        article_text = article_meta["text"]
 
 
     if not article_text or len(article_text.strip()) < 20:
@@ -217,12 +233,14 @@ def classify(req: ClassifyRequest):
     baseline_scores = classify_text(article_text)
     title_scores = classify_text(article_title) if article_title else None
     sentences = split_sentences(article_text)
-    word_counts = word_breakdown(article_text)
+    word_counts = word_breakdown(article_text, top_n=10)
     poss_trunc = len(sentences) < 10
 
     session_id = str(uuid.uuid4())
     _SESSIONS[session_id] = {
         "text": article_text,
+        "author": article_author,
+        "date": article_date,
         "sentences": sentences,
         "baseline": baseline_scores,
         "title": article_title,
@@ -235,6 +253,8 @@ def classify(req: ClassifyRequest):
     return {
         "id": session_id,
         "title": article_title,
+        "author": article_author,
+        "date": article_date,
         "labels": [{"name": name, "confidence": round(score, 4)} for name, score in baseline_scores.items()],
         "title_labels": (
             [{"name": name, "confidence": round(score, 4)} for name, score in title_scores.items()]

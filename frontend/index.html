@@ -2,56 +2,208 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Fair Copy Demo</title>
+<title>Fair Copy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manufacturing+Consent&family=Roboto+Serif:ital,opsz,wght@0,8..144,100..900;1,8..144,100..900&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="fa-all.min.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main>
-    <section id="form-box">
-      <h1>Fair Copy Demo</h1>
-      <p class="subtitle">Paste article text or a URL to classify it.</p>
+  <main id="main">
+    <section id="header-box">
+      <h1>Fair Copy</h1>
+      <p class="subtitle"><span>Read between the lines. Every article has an angle. Find it.</span></p>
+    </section>
 
+    <section id="form-box">
       <form id="classify-form">
         <textarea id="text-input" placeholder="Paste article text here..." rows="6"></textarea>
-        <div class="or-divider">or</div>
-        <input id="url-input" type="url" placeholder="https://example.com/article">
-        <button type="submit" id="submit-btn">Classify</button>
+        <div class="or-divider"><span>OR</span></div>
+        <input id="url-input" type="url" placeholder="Paste article URL here...">
+        <button type="submit" id="submit-btn">Analyze</button>
       </form>
-    </section>
 
-    <div id="loading" class="hidden">Classifying...</div>
-
-    <section id="results" class="hidden">
-      <h1>Results</h1>
-
-      <div class="field-box loading" id="article-title-box">
-        <h2>Article Title</h2>
-        <div id="article_title"></div>
-      </div>
-
-      <div class="field-box loading" id="label-box">
-        <h2>Labels</h2>
-        <div id="badges"></div>
-      </div>
-
-      <div class="field-box loading" id="photo-credits-box">
-        <h2>Photo Credits</h2>
-        <div id="photo_credits"></div>
-      </div>
-
-      <div class="field-box loading" id="word-count-box">
-        <h2>Word Breakdown</h2>
-        <div id="word_counts"></div>
-      </div>
-
-      <div class="field-box loading" id="sentence-impact-box">
-        <h2>Sentence Impact</h2>
-        <ul id="sentence-list"></ul>
-        <button id="load-more" class="hidden">Load 10 more</button>
+      <div id="history-box" class="hidden">
+        <h2>Recent scans</h2>
+        <div id="history-list"></div>
       </div>
     </section>
 
-    <div id="error" class="hidden"></div>
+    <div id="loading" class="hidden">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+      <p id="loadingLabel">Analyzing...</p>
+    </div>
+    <div id="error" class="hidden">
+      <i class="fa-solid fa-circle-xmark"></i>
+      <p id="errorLabel">Error</p>
+    </div>
+
+    <section id="results-box" class="hidden">
+      <div id="results-btn-bar" class="fade-item">
+        <div>
+          <button id="btnReset"> Reset</button>
+        </div>
+        <div>
+          <button id="btnShare">Share</button>
+        </div>
+      </div>
+
+      <div id="results-content-box">
+
+        <div class="field-box fade-item" id="article-title-box">
+          <h2>Article Title</h2>
+          <div id="article_title">This is a sample article title</div>
+        </div>
+
+        <div class="field-row">
+          <div class="field-box fade-item" id="author-box">
+            <h2>Author</h2>
+            <div id="author"></div>
+          </div>
+
+          <div class="field-box fade-item" id="date-box">
+            <h2>Date</h2>
+            <div id="date"></div>
+          </div>
+        </div>
+
+        <div class="field-box fade-item" id="label-box">
+          <h2>Label Balance</h2>
+          <div id="label-bars">
+
+            <!-- SAVE THIS TO ADJUST STYLES
+            <div class="bar-row">
+              <div class="bar-row-header dual">
+                <span>Factual: 8%</span>
+                <span>Opinion/Editorial: 92%</span>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill" style="width: 8%; background: #379674;justify-content:start;"></div>
+                <div class="bar-fill" style="width: 92%; background: #D52348;">92%</div>
+              </div>
+            </div>
+
+            <div class="bar-row">
+              <div class="bar-row-header">Hyperpartisan</div>
+              <div class="bar-track">
+                <div class="bar-fill" style="width: 64%; background: #8042A7;">64%</div>
+              </div>
+            </div>
+
+            <div class="bar-row">
+              <div class="bar-row-header">Clickbait</div>
+              <div class="bar-track">
+                <div class="bar-fill" style="width: 32%; background: #4177B8;">32%</div>
+              </div>
+            </div> -->
+
+          </div>
+        </div>
+
+        <div class="field-box fade-item" id="sentence-impact-box">
+          <h2>Sentence Impact<span>Sentences <span id="sentence-count" class="num"></span></span></h2>
+          <ul id="sentence-list">
+
+            <!-- SAVE THIS TO ADJUST STYLES
+            <li>
+              <div class="sentence-content">
+                LOS ANGELES (AP) — New warnings from within the artificial intelligence industry have revived a long-running debate over whether advanced AI could escape human control and ultimately threaten humanity’s survival, and whether the companies developing the technology are doing enough to prevent such a scenario.<br />
+              </div>
+              <div class="impact-tags">
+                <span class="impact-tag">Factual Reporting: -14.5%</span>
+                <span class="impact-tag">Hyperpartisan: +22.5%</span>
+                <span class="impact-tag">Clickbait: +12.5%</span>
+                <span class="impact-tag">Opinion/Editorial: -14.5%</span>
+              </div>
+            </li>
+            <li>
+              <div class="sentence-content">
+                LOS ANGELES (AP) — New warnings from within the artificial intelligence industry have revived a long-running debate over whether advanced AI could escape human control and ultimately threaten humanity’s survival, and whether the companies developing the technology are doing enough to prevent such a scenario.<br />
+              </div>
+              <div class="impact-tags">
+                <span class="impact-tag">Factual Reporting: -14.5%</span>
+                <span class="impact-tag">Hyperpartisan: +22.5%</span>
+                <span class="impact-tag">Clickbait: +12.5%</span>
+                <span class="impact-tag">Opinion/Editorial: -14.5%</span>
+              </div>
+            </li>
+            <li>
+              <div class="sentence-content">
+                LOS ANGELES (AP) — New warnings from within the artificial intelligence industry have revived a long-running debate over whether advanced AI could escape human control and ultimately threaten humanity’s survival, and whether the companies developing the technology are doing enough to prevent such a scenario.<br />
+              </div>
+              <div class="impact-tags">
+                <span class="impact-tag">Factual Reporting: -14.5%</span>
+                <span class="impact-tag">Hyperpartisan: +22.5%</span>
+                <span class="impact-tag">Clickbait: +12.5%</span>
+                <span class="impact-tag">Opinion/Editorial: -14.5%</span>
+              </div>
+            </li>
+            <li>
+              <div class="sentence-content">
+                LOS ANGELES (AP) — New warnings from within the artificial intelligence industry have revived a long-running debate over whether advanced AI could escape human control and ultimately threaten humanity’s survival, and whether the companies developing the technology are doing enough to prevent such a scenario.<br />
+              </div>
+              <div class="impact-tags">
+                <span class="impact-tag">Factual Reporting: -14.5%</span>
+                <span class="impact-tag">Hyperpartisan: +22.5%</span>
+                <span class="impact-tag">Clickbait: +12.5%</span>
+                <span class="impact-tag">Opinion/Editorial: -14.5%</span>
+              </div>
+            </li>
+            <li>
+              <div class="sentence-content">
+                LOS ANGELES (AP) — New warnings from within the artificial intelligence industry have revived a long-running debate over whether advanced AI could escape human control and ultimately threaten humanity’s survival, and whether the companies developing the technology are doing enough to prevent such a scenario.<br />
+              </div>
+              <div class="impact-tags">
+                <span class="impact-tag">Factual Reporting: -14.5%</span>
+                <span class="impact-tag">Hyperpartisan: +22.5%</span>
+                <span class="impact-tag">Clickbait: +12.5%</span>
+                <span class="impact-tag">Opinion/Editorial: -14.5%</span>
+              </div>
+            </li> -->
+
+          </ul>
+          <button id="load-more" class="hidden">Load 10 more</button>
+        </div>
+      </div>
+
+      <div id="results-sidebar-box">
+
+        <div class="field-box fade-item" id="photo-credits-box">
+          <h2>Submission</h2>
+          <div class="field">Submission Type<span id="submission-type" class="num"></span></div>
+          <div class="field col">Submission Content
+            <div id="submission-content"></div>
+          </div>
+        </div>
+
+        <div class="field-box fade-item" id="photo-credits-box">
+          <h2>Photo Credits</h2>
+          <div id="photo_credits"></div>
+        </div>
+
+        <div class="field-box fade-item" id="word-count-box">
+          <h2>Word Breakdown</h2>
+          <div id="word_counts">
+
+            <!--
+            <div>Words<span class="dots"></span><span class="num">123</span></div>
+            <div>people<span class="dots"></span><span class="num"> 123</span></div>
+            <div>america<span class="dots"></span><span class="num">123</span></div>
+            <div>music<span class="dots"></span><span class="num">123</span></div>
+            <div>arts<span class="dots"></span><span class="num">123</span></div>
+            <div>physical<span class="dots"></span><span class="num">123</span></div>
+            <div>math<span class="dots"></span><span class="num">123</span></div>
+            <div>science<span class="dots"></span><span class="num">123</span></div>
+            <div>history<span class="dots"></span><span class="num">123</span></div>
+            <div>english<span class="dots"></span><span class="num">123</span></div>
+            -->
+
+          </div>
+        </div>
+
+      </div>
+    </section>
   </main>
   <script src="app.js"></script>
 </body>
