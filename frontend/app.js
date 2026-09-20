@@ -1,4 +1,5 @@
-const API_BASE = "http://127.0.0.1:8000";
+// view at: http://127.0.0.1:8000
+const API_BASE = "";
 
 // main - nav
 const main = document.getElementById("main");
@@ -26,12 +27,15 @@ const sentenceList = document.getElementById("sentence-list");
 // UI/UX
 const loadMoreBtn = document.getElementById("load-more");
 const loading = document.getElementById("loading");
+const loadingLabel = document.getElementById("loadingLabel");
 const errorEl = document.getElementById("error");
 const errorLabel = document.getElementById("errorLabel");
+const shareLinkInput = document.getElementById("share-link-input");
+const btnCopyLink = document.getElementById("copy-link-btn");
+const sharedBanner = document.getElementById("shared-banner");
 
 let currentSessionId = null;
 let nextOffset = 0;
-let radarChart = null;
 
 // HISTORY
 const BOOT_ID_KEY = "fairCopyServerBootId";
@@ -40,13 +44,25 @@ const MAX_HISTORY_ITEMS = 50;
 const historyBox = document.getElementById("history-box");
 const historyList = document.getElementById("history-list");
 
-// INIT
+// INIT EVENTS
 loadMoreBtn.addEventListener("click", () => loadNextSentenceBatch(10));
 btnReset.addEventListener("click", btnResetFunc);
-// server check - history clear if it was restarted
+document.getElementById("copy-link-btn").addEventListener("click", btnCopyLinkFunc);
+// init checks
 (async () => {
+  // server check - history clear if it was restarted
   await checkServerBootId();
   renderHistoryList();
+
+  // shared check - see if ID is in URL
+  const params = new URLSearchParams(window.location.search);
+  const sharedId = params.get("shared");
+  if (sharedId) {
+    formBox.classList.add("hidden");
+    loadingLabel.textContent = "Loading Shared Report...";
+    loading.classList.remove("hidden");
+    await loadSharedReport(sharedId);
+  }
 })();
 
 function showError(msg) {
@@ -62,15 +78,14 @@ function clearError() {
 function btnResetFunc() {
   // back to form from results
   results.classList.add("hidden");
-  loading.classList.remove("hidden");
   // rerender history for new item
   renderHistoryList();
 
   textInput.value = "";
   urlInput.value = "";
+  sharedBanner.classList.add("hidden"); // if report was shared
   resetAnim();
   
-  loading.classList.add("hidden");
   formBox.classList.remove("hidden");
 }
 
@@ -200,6 +215,11 @@ form.addEventListener("submit", async (e) => {
 
   let txtValue = textInput.value.trim();
   let urlValue = urlInput.value.trim();
+  if (!txtValue && !urlValue) {
+    showError("Provide either 'text' or 'url'.");
+    loading.classList.add("hidden");
+    return;
+  }
 
   const body = {};
   if (txtValue) body.text = txtValue;
@@ -220,6 +240,7 @@ form.addEventListener("submit", async (e) => {
 
     currentSessionId = data.id;
     nextOffset = 0;
+    populateShareLink(data.id);
 
     // switch views
     formBox.classList.add("hidden");
@@ -361,6 +382,7 @@ async function loadFromHistory(index) {
 
   currentSessionId = item.id;
   nextOffset = 0;
+  populateShareLink(item.id);
   sentenceList.innerHTML = "";
 
   // display results from history
@@ -376,10 +398,10 @@ async function loadFromHistory(index) {
   renderWordCounts(item.word_counts);
   renderPhotoCredits(item.photo_credits);
 
+  await loadNextSentenceBatch(5);
+
   formBox.classList.add("hidden");
   results.classList.remove("hidden");
-
-  await loadNextSentenceBatch(5);
 
   fadeReveal();
 }
@@ -401,4 +423,69 @@ async function checkServerBootId() {
   } catch (e) {
     console.error("Could not reach backend to check server boot id:", e);
   }
+}
+
+// share link stuff
+function populateShareLink(sessionId) {
+  const shareUrl = `${window.location.origin}${window.location.pathname}?shared=${sessionId}`;
+  document.getElementById("share-link-input").value = shareUrl;
+}
+
+async function loadSharedReport(sessionId) {
+  const res = await fetch(`${API_BASE}/api/classify/${sessionId}`);
+
+  if (!res.ok) {
+    formBox.classList.remove("hidden");
+    showError("This shared report is no longer available -- the server may have restarted since it was created.");
+    return;
+  }
+
+  const data = await res.json();
+  currentSessionId = data.id;
+  nextOffset = 0;
+  populateShareLink(data.id);
+  sentenceList.innerHTML = "";
+
+  // display results from history
+  articleTitleEl.textContent = data.title || "N/A";
+  articleTitleEl.parentElement.classList.remove("hidden");
+
+  dateEl.textContent = data.date || "N/A";
+  authorEl.textContent = data.author || "N/A";
+  sentenceCount.textContent = data.sentence_count || "N/A";
+
+  let subContent = {
+    type: data.submitted_type,
+    content: data.submitted_content_raw,
+  }
+  renderSubmissionContent(subContent);
+  renderLabelBars(data.labels);
+  renderWordCounts(data.word_counts);
+  renderPhotoCredits(data.photo_credits);
+
+  await loadNextSentenceBatch(5);
+
+  // reset loading
+  loadingLabel.textContent = "Analyzing...";
+  loading.classList.add("hidden");
+  // show results
+  results.classList.remove("hidden");
+  sharedBanner.classList.remove("hidden");
+  fadeReveal();
+}
+
+async function btnCopyLinkFunc() {
+  try {
+    await navigator.clipboard.writeText(shareLinkInput.value);
+    btnCopyLink.textContent = "Copied!";
+    btnCopyLink.classList.add("copied");
+  } catch (e) {
+    console.error("Clipboard write failed:", e);
+    shareLinkInput.select();
+  }
+
+  setTimeout(() => {
+    btnCopyLink.textContent = "Copy link";
+    btnCopyLink.classList.remove("copied");
+  }, 2000);
 }

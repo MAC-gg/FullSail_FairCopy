@@ -11,6 +11,7 @@ from typing import Optional
 import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import os
@@ -189,6 +190,8 @@ def classify(req: ClassifyRequest):
     article_author = None
     article_date = None
     photo_credits = []
+    submitted_type = "URL" if req.url else "Text"
+    submitted_content_raw = req.url if req.url else req.text
 
     # HEADSUP: URL would overwrite text if both are provided
     if req.url:
@@ -249,6 +252,8 @@ def classify(req: ClassifyRequest):
         "poss_trunc": poss_trunc,
         "photo_credits": photo_credits,
         "word_counts": word_counts,
+        "submitted_type": submitted_type,
+        "submitted_content_raw": submitted_content_raw,
     }
 
     return {
@@ -299,3 +304,33 @@ def sentence_impacts(session_id: str, offset: int = 0, limit: int = 10):
         "next_offset": offset + limit if offset + limit < len(sentences) else None,
         "total_sentences": len(sentences),
     }
+
+@app.get("/api/classify/{session_id}")
+def get_shared_report(session_id: str):
+    session = _SESSIONS.get(session_id)
+    if not session:
+        raise HTTPException(
+            404,
+            "This shared report is no longer available -- the server may have restarted since it was created."
+        )
+
+    return {
+        "id": session_id,
+        "title": session["title"],
+        "author": session.get("author"),
+        "date": session.get("date"),
+        "labels": [{"name": name, "confidence": round(score, 4)} for name, score in session["baseline"].items()],
+        "title_labels": (
+            [{"name": name, "confidence": round(score, 4)} for name, score in session["title_scores"].items()]
+            if session.get("title_scores") else None
+        ),
+        "sentence_count": len(session["sentences"]),
+        "possibly_truncated": session.get("possibly_truncated"),
+        "photo_credits": session.get("photo_credits", []),
+        "word_counts": session.get("word_counts", []),
+        "submitted_type": session.get("submitted_type"),
+        "submitted_content_raw": session.get("submitted_content_raw"),
+    }
+
+# serve frontend
+app.mount("/", StaticFiles(directory="../frontend", html=True), name="frontend")

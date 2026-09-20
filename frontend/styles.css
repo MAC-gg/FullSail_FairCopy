@@ -151,6 +151,29 @@ button:hover {
   padding:0.5rem 1rem;
   font-size:16px;
 }
+/* share panel */
+.share-panel { display: flex; }
+.share-panel input {
+  flex: 1;
+  padding:0.5rem;
+  border: 1px solid #ccc;
+  font-size:13px;
+  background: #dfdfdf;
+}
+.share-panel button { width:125px; }
+.share-panel button.copied {
+  background: #E1F5EE;
+  border-color: #379674;
+  color: #379674;
+}
+#shared-banner {
+  width:100%;
+  background: #8042A7;
+  color: #fdfdfd;
+  padding: 0.5rem 1rem;
+  text-align:center;
+}
+/* END share panel */
 
 .field-row {
   display:flex;

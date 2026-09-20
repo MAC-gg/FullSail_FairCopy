@@ -41,12 +41,18 @@
     </section>
 
     <section id="results-box" class="hidden">
+      <div id="shared-banner" class="hidden">
+        You're viewing a shared report.
+      </div>
       <div id="results-btn-bar" class="fade-item">
         <div>
-          <button id="btnReset"> Reset</button>
+          <button id="btnReset" type="button"> Reset</button>
         </div>
         <div>
-          <button id="btnShare">Share</button>
+          <div class="share-panel">
+            <input type="text" id="share-link-input" readonly>
+            <button id="copy-link-btn" type="button">Copy link</button>
+          </div>
         </div>
       </div>
 
