@@ -34,10 +34,20 @@ let nextOffset = 0;
 let radarChart = null;
 
 // HISTORY
+const BOOT_ID_KEY = "fairCopyServerBootId";
 const HISTORY_KEY = "fairCopyHistory";
 const MAX_HISTORY_ITEMS = 50;
 const historyBox = document.getElementById("history-box");
 const historyList = document.getElementById("history-list");
+
+// INIT
+loadMoreBtn.addEventListener("click", () => loadNextSentenceBatch(10));
+btnReset.addEventListener("click", btnResetFunc);
+// server check - history clear if it was restarted
+(async () => {
+  await checkServerBootId();
+  renderHistoryList();
+})();
 
 function showError(msg) {
   errorLabel.textContent = msg;
@@ -53,12 +63,12 @@ function btnResetFunc() {
   // back to form from results
   results.classList.add("hidden");
   loading.classList.remove("hidden");
+  // rerender history for new item
+  renderHistoryList();
 
   textInput.value = "";
   urlInput.value = "";
-  // reset anim
-  main.classList.remove("results");
-  document.querySelectorAll(".fade-item").forEach(el => el.classList.remove("revealed"));
+  resetAnim();
   
   loading.classList.add("hidden");
   formBox.classList.remove("hidden");
@@ -235,6 +245,8 @@ form.addEventListener("submit", async (e) => {
     renderLabelBars(data.labels);
 
     await loadNextSentenceBatch(5);
+
+    saveHistoryEntry(data);
   } catch (err) {
     showError(err.message);
   } finally {
@@ -243,26 +255,150 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-loadMoreBtn.addEventListener("click", () => loadNextSentenceBatch(10));
-btnReset.addEventListener("click", btnResetFunc);
-
 // Anim stuff
-// when CSS expand ends - trigger results anim
-main.addEventListener("transitionend", (e) => {
-  if (e.propertyName === "width" || e.propertyName === "max-width") {
-    results.classList.remove("hidden");
-    fadeReveal();
-  }
-}, { once: true });
-
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function resetAnim() {
+  main.classList.remove("results");
+  document.querySelectorAll(".fade-item").forEach(el => el.classList.remove("revealed"));
+}
+
 async function fadeReveal(selector = ".fade-item") {
+  main.classList.add("results");
+  results.classList.remove("hidden");
+  await wait(300);
   const items = document.querySelectorAll(selector);
   for (const el of items) {
     el.classList.add("revealed");
     await wait(300);
+  }
+}
+
+// history stuff
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.error("Failed to read history from localStorage:", e);
+    return [];
+  }
+}
+
+function saveHistoryEntry(data) {
+  const history = loadHistory();
+
+  // sub content
+  let txtValue = textInput.value.trim();
+  let urlValue = urlInput.value.trim();
+  let submittedContent = {
+    type: urlValue ? "URL" : "Text",
+    content: urlValue ? urlValue : txtValue,
+  }
+
+  history.unshift({
+    id: data.id,
+    title: data.title,
+    author: data.author,
+    date: data.date,
+    labels: data.labels,
+    sentence_count: data.sentence_count,
+    submitted_content: submittedContent,
+    word_counts: data.word_counts,
+    photo_credits: data.photo_credits,
+    savedAt: new Date().toLocaleString(),
+  });
+
+  const trimmed = history.slice(0, MAX_HISTORY_ITEMS);
+
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
+  } catch (e) {
+    console.error("Failed to save history (localStorage may be full):", e);
+  }
+
+  return trimmed;
+}
+
+function renderHistoryList() {
+  const history = loadHistory();
+  historyBox.classList.toggle("hidden", history.length === 0);
+
+  historyList.innerHTML = history
+    .map((item, i) => {
+      const labelTags = item.labels
+        .map(({ name, confidence }) => {
+          const details = BAR_DETAILS[name];
+          const displayName = details ? details.label : name;
+          const cssClass = details ? details.cssClass : "";
+          return `<span class="impact-tag${cssClass ? " " + cssClass : ""}">${displayName}: ${(confidence * 100).toFixed(1)}%</span>`;
+        })
+        .join("");
+
+      return `<div class="history-item" data-index="${i}">
+        <div class="history-content">
+          <strong>${item.title || "Untitled"}</strong>
+          <span class="history-meta">${item.savedAt}</span>
+        </div>
+        <div class="impact-tags">
+          ${labelTags}
+        </div>
+      </div>`;
+    })
+    .join("");
+
+  historyList.querySelectorAll(".history-item").forEach(el => {
+    el.addEventListener("click", () => loadFromHistory(Number(el.dataset.index)));
+  });
+}
+
+async function loadFromHistory(index) {
+  const history = loadHistory();
+  const item = history[index];
+  if (!item) return;
+
+  currentSessionId = item.id;
+  nextOffset = 0;
+  sentenceList.innerHTML = "";
+
+  // display results from history
+  articleTitleEl.textContent = item.title || "N/A";
+  articleTitleEl.parentElement.classList.remove("hidden");
+
+  dateEl.textContent = item.date || "N/A";
+  authorEl.textContent = item.author || "N/A";
+  sentenceCount.textContent = item.sentence_count || "N/A";
+
+  renderSubmissionContent(item.submitted_content)
+  renderLabelBars(item.labels);
+  renderWordCounts(item.word_counts);
+  renderPhotoCredits(item.photo_credits);
+
+  formBox.classList.add("hidden");
+  results.classList.remove("hidden");
+
+  await loadNextSentenceBatch(5);
+
+  fadeReveal();
+}
+
+// force history clear on server restart
+// check server boot token to see if history matches
+async function checkServerBootId() {
+  try {
+    const res = await fetch(`${API_BASE}/api/health`);
+    const data = await res.json();
+
+    const lastKnownBootId = localStorage.getItem(BOOT_ID_KEY);
+
+    if (lastKnownBootId && lastKnownBootId !== data.boot_id) {
+      localStorage.removeItem(HISTORY_KEY);
+    }
+
+    localStorage.setItem(BOOT_ID_KEY, data.boot_id);
+  } catch (e) {
+    console.error("Could not reach backend to check server boot id:", e);
   }
 }

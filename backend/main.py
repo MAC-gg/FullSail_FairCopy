@@ -38,8 +38,9 @@ app.add_middleware(
 # Predetermined labels
 LABELS = ["factual", "opinion", "hyperpartisan", "clickbait"]
 
-# In-memory store for the RnD demo
+# memory stuff
 _SESSIONS: dict[str, dict] = {}
+SERVER_BOOT_ID = str(uuid.uuid4())
 
 # lazy-load models
 MODELS_DIR = Path(__file__).parent.parent / "training" / "models"
@@ -175,7 +176,7 @@ class ClassifyRequest(BaseModel):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "boot_id": SERVER_BOOT_ID}
 
 
 @app.post("/api/classify")

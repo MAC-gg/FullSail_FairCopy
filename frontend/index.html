@@ -24,20 +24,21 @@
         <button type="submit" id="submit-btn">Analyze</button>
       </form>
 
+      <div id="loading" class="hidden">
+        <i class="fa-solid fa-spinner fa-spin"></i>
+        <p id="loadingLabel">Analyzing...</p>
+      </div>
+
+      <div id="error" class="hidden">
+        <i class="fa-solid fa-circle-xmark"></i>
+        <p id="errorLabel">Error</p>
+      </div>
+
       <div id="history-box" class="hidden">
         <h2>Recent scans</h2>
         <div id="history-list"></div>
       </div>
     </section>
-
-    <div id="loading" class="hidden">
-      <i class="fa-solid fa-spinner fa-spin"></i>
-      <p id="loadingLabel">Analyzing...</p>
-    </div>
-    <div id="error" class="hidden">
-      <i class="fa-solid fa-circle-xmark"></i>
-      <p id="errorLabel">Error</p>
-    </div>
 
     <section id="results-box" class="hidden">
       <div id="results-btn-bar" class="fade-item">
