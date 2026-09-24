@@ -22,8 +22,9 @@ main.results { max-width: 1024px; }
 }
 #error {
   text-align:center;
-  margin-top:2rem;
+  margin:2rem auto;
   color: #D52348;
+  max-width:35%;
 }
 #error p, #loading p { margin:0; }
 #loading i, #error i {

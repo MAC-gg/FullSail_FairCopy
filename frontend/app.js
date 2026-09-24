@@ -45,7 +45,7 @@ const historyBox = document.getElementById("history-box");
 const historyList = document.getElementById("history-list");
 
 // INIT EVENTS
-loadMoreBtn.addEventListener("click", () => loadNextSentenceBatch(10));
+loadMoreBtn.addEventListener("click", () => loadNextSentenceBatch(5));
 btnReset.addEventListener("click", btnResetFunc);
 document.getElementById("copy-link-btn").addEventListener("click", btnCopyLinkFunc);
 // init checks
@@ -68,6 +68,7 @@ document.getElementById("copy-link-btn").addEventListener("click", btnCopyLinkFu
 function showError(msg) {
   errorLabel.textContent = msg;
   errorEl.classList.remove("hidden");
+  loading.classList.add("hidden");
 }
 
 function clearError() {
@@ -197,13 +198,46 @@ function renderSubmissionContent(content) {
   }
 }
 
-async function loadNextSentenceBatch(limit = 10) {
+async function loadNextSentenceBatch(limit = 5) {
   if (nextOffset === null || !currentSessionId) return;
   const res = await fetch(`${API_BASE}/api/classify/${currentSessionId}/sentences?offset=${nextOffset}&limit=${limit}`);
   const data = await res.json();
   renderSentenceBatch(data.results);
   nextOffset = data.next_offset;
   loadMoreBtn.classList.toggle("hidden", nextOffset === null);
+}
+
+// string classify
+async function runClassification(body) {
+  loadingLabel.textContent = "Scanning article...";
+  const prepRes = await fetch(`${API_BASE}/api/classify/prepare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!prepRes.ok) {
+    const err = await prepRes.json();
+    throw new Error(err.detail || "Preparation failed.");
+  }
+  const prep = await prepRes.json();
+
+  for (let i = 0; i < prep.chunk_count; i++) {
+    loadingLabel.textContent = prep.chunk_count > 1
+      ? `Analyzing part ${i + 1} of ${prep.chunk_count}...`
+      : "Classifying content...";
+
+    const chunkRes = await fetch(`${API_BASE}/api/classify/${prep.id}/chunk/${i}`, { method: "POST" });
+    console.log("Chunk request URL:", `${API_BASE}/api/classify/${prep.id}/chunk/${i}`);
+    if (!chunkRes.ok) throw new Error("Chunk classification failed.");
+  }
+
+  loadingLabel.textContent = "Compiling report...";
+  const finalRes = await fetch(`${API_BASE}/api/classify/${prep.id}/finalize`, { method: "POST" });
+  if (!finalRes.ok) {
+    const err = await finalRes.json();
+    throw new Error(err.detail || "Finalization failed.");
+  }
+  return await finalRes.json();
 }
 
 form.addEventListener("submit", async (e) => {
@@ -213,11 +247,11 @@ form.addEventListener("submit", async (e) => {
   sentenceList.innerHTML = "";
   loading.classList.remove("hidden");
 
-  let txtValue = textInput.value.trim();
-  let urlValue = urlInput.value.trim();
+  const txtValue = textInput.value.trim();
+  const urlValue = urlInput.value.trim();
+
   if (!txtValue && !urlValue) {
-    showError("Provide either 'text' or 'url'.");
-    loading.classList.add("hidden");
+    showError("Enter some text or a URL to analyze.");
     return;
   }
 
@@ -226,16 +260,7 @@ form.addEventListener("submit", async (e) => {
   if (urlValue) body.url = urlValue;
 
   try {
-    const res = await fetch(`${API_BASE}/api/classify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Classification failed.");
-    }
-    const data = await res.json();
+    const data = await runClassification(body);
     console.log(data);
 
     currentSessionId = data.id;
@@ -268,11 +293,9 @@ form.addEventListener("submit", async (e) => {
     await loadNextSentenceBatch(5);
 
     saveHistoryEntry(data);
+    fadeReveal();
   } catch (err) {
     showError(err.message);
-  } finally {
-    fadeReveal();
-    loading.classList.add("hidden");
   }
 });
 
